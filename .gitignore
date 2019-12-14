@@ -1,0 +1,30 @@
+# Created by https://www.gitignore.io/api/java,gradle,eclipse
+
+# Configuration File
+/src/main/resources/config.json
+
+### Eclipse ###
+.metadata
+.settings/
+bin/
+
+### Eclipse Patch ###
+# Eclipse Core
+.project
+
+# JDT-specific (Eclipse Java Development Tools)
+.classpath
+
+### Java ###
+# Compiled class file
+*.class
+
+### Gradle ###
+.gradle
+build/
+gradle/
+
+### Gradle Patch ###
+**/build/
+
+# End of https://www.gitignore.io/api/java,gradle,eclipse
