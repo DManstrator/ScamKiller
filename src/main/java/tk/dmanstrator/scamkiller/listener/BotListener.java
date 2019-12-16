@@ -1,13 +1,18 @@
 package tk.dmanstrator.scamkiller.listener;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
+import net.dv8tion.jda.api.entities.PermissionOverride;
+import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.TextChannel;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.events.ReadyEvent;
@@ -25,6 +30,9 @@ public class BotListener extends ListenerAdapter  {
 	private static final String CROSSBAN_REASON = DEFAULT_BAN_REASON + " (Crossban)";
 	private static final String ONBOOT_REASON = DEFAULT_BAN_REASON + " (Ban on Bot Start)";
 	
+	private static final List<Permission> HIGH_PERMISSIONS = Arrays.asList(Permission.ADMINISTRATOR, Permission.BAN_MEMBERS,
+			Permission.MANAGE_SERVER, Permission.KICK_MEMBERS);  // list because the order matters
+
 	private final List<Long> unwantedIds = initBanIds();
 	private final List<String> unwantedNames = initBanNames();
 	
@@ -61,35 +69,38 @@ public class BotListener extends ListenerAdapter  {
 					String.format("%#s (Id: %d) was banned from '%s'. Reason: %s",
 							memberToBan, memberToBan.getIdLong(), memberToBan.getGuild().getName(), reason));
 		}, failure ->  {
-			String info;
-			if (failure instanceof PermissionException)  {
-				PermissionException pe = (PermissionException) failure;
-                Permission missingPermission = pe.getPermission();
-                if (missingPermission == Permission.UNKNOWN)  {
-                	info = "PermissionError: " + pe.getMessage();
-                }  else  {
-                	info = "I am missing the following permission for banning: " + missingPermission;
-                }
-			}  else  {
-				info = "Unexpected Error: " + failure.getMessage();
-			}
-			
-			Guild guild = memberToBan.getGuild();
-			Member owner = guild.getOwner();
-			if (owner != null)  {
-				owner.getUser().openPrivateChannel().queue(pc -> {
-					pc.sendMessage(info).queue(null, dmFail ->  {
-						postErrorInPublicChannel(guild,
-								"Problem occured but DMs are blocked by server owner." + System.lineSeparator() + info);
-					});
-				});
-			}  else  {
-				postErrorInPublicChannel(guild, "Owner is unreachable." + System.lineSeparator() + info);
-			}
+			handleError(failure, memberToBan.getGuild(), "banning");
 		});
 
 	}
 	
+	private void handleError(Throwable failure, Guild guild, String action)  {
+		String info;
+		if (failure instanceof PermissionException)  {
+			PermissionException pe = (PermissionException) failure;
+            Permission missingPermission = pe.getPermission();
+            if (missingPermission == Permission.UNKNOWN)  {
+				info = "PermissionError: " + pe.getMessage();
+            }  else  {
+				info = "I am missing the following permission for " + action + ": " + missingPermission;
+            }
+		}  else  {
+			info = "Unexpected Error: " + failure.getMessage();
+		}
+
+		Member owner = guild.getOwner();
+		if (owner != null)  {
+			owner.getUser().openPrivateChannel().queue(pc -> {
+				pc.sendMessage(info).queue(null, dmFail ->  {
+					postErrorInPublicChannel(guild,
+							"Problem occured but DMs are blocked by server owner." + System.lineSeparator() + info);
+				});
+			});
+		}  else  {
+			postErrorInPublicChannel(guild, "Owner is unreachable." + System.lineSeparator() + info);
+		}
+	}
+
 	private void postErrorInPublicChannel(Guild guild, String errorMsg) {
 		TextChannel channel = getMostPrivateChannel(guild);
 		if (channel == null)  {
@@ -108,10 +119,64 @@ public class BotListener extends ListenerAdapter  {
 	}
 
 	private TextChannel getMostPrivateChannel(Guild guild) {
-		// TODO Auto-generated method stub
-		// get all channel where canTalk is true.
-		// Then check for overrides -> best case: everyone denied, admin allowed
-		return null;
+		Role everyoneRole = guild.getPublicRole();
+		List<TextChannel> talkablePrivateChannels = guild.getTextChannelCache().stream()
+			.filter(TextChannel::canTalk)
+			.filter(tc -> {
+				PermissionOverride publicOverride = tc.getPermissionOverride(everyoneRole);
+				// no override for public role? -> open channel
+				if (publicOverride == null)  {
+					return false;
+				}
+
+				boolean readDenied = publicOverride.getDenied().contains(Permission.MESSAGE_READ);
+				// has overrides but has read permissions
+				if (!readDenied)  {
+					return false;
+				}
+
+				return true;
+			})
+			.collect(Collectors.toList());
+
+		Member owner = guild.getOwner();
+
+		List<TextChannel> privateChannels = talkablePrivateChannels.stream()
+			.filter(tc -> {
+				if (owner != null)  {
+					PermissionOverride ownerOverride = tc.getPermissionOverride(owner);
+					// owner has an override -> looks promising
+					if (ownerOverride != null)  {
+						return true;
+					}
+				}
+
+				// everyone disabled and no admin override -> let's check for other perms
+				List<PermissionOverride> permissionOverrides = tc.getPermissionOverrides();
+
+				for (Permission perm : HIGH_PERMISSIONS)  {
+					// Any member with override has high permission -> looks promising
+					boolean memberAdminOverride = permissionOverrides.stream()
+						.filter(PermissionOverride::isMemberOverride)
+						.anyMatch(po -> po.getMember().hasPermission(perm));
+					if (memberAdminOverride)  {
+						return true;
+					}
+
+					// Any role with override has high permission -> looks promising
+					boolean roleAdminOverride = permissionOverrides.stream()
+						.filter(PermissionOverride::isRoleOverride)
+						.anyMatch(po -> po.getRole().hasPermission(perm));
+					if (roleAdminOverride)  {
+						return true;
+					}
+				}
+				return false;
+			})
+			// the less overrides it has the better it is
+			.sorted(Comparator.comparingInt(tc -> tc.getPermissionOverrides().size()))
+			.collect(Collectors.toList());
+		return privateChannels.isEmpty() ? null : talkablePrivateChannels.get(0);
 	}
 
 	@Override
