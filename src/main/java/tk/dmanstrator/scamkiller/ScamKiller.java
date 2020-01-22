@@ -14,7 +14,7 @@ public class ScamKiller {
 	
 	public ScamKiller() throws LoginException  {
 		jda = new JDABuilder(config.getToken())
-				.addEventListeners(new BotListener())
+				.addEventListeners(new BotListener(config.getIds(), config.getNames()))
 				.setActivity(Activity.playing("Killing Scammers"))
 				.build();
 	}

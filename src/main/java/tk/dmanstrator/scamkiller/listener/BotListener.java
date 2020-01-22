@@ -1,9 +1,12 @@
 package tk.dmanstrator.scamkiller.listener;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -21,6 +24,7 @@ import net.dv8tion.jda.api.exceptions.PermissionException;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.dv8tion.jda.api.utils.cache.MemberCacheView;
 import net.dv8tion.jda.api.utils.cache.SnowflakeCacheView;
+import tk.dmanstrator.scamkiller.utils.FileUtils;
 
 public class BotListener extends ListenerAdapter  {
 	
@@ -32,10 +36,22 @@ public class BotListener extends ListenerAdapter  {
 	
 	private static final List<Permission> HIGH_PERMISSIONS = Arrays.asList(Permission.ADMINISTRATOR, Permission.BAN_MEMBERS,
 			Permission.MANAGE_SERVER, Permission.KICK_MEMBERS);  // list because the order matters
-
-	private final List<Long> unwantedIds = initBanIds();
-	private final List<String> unwantedNames = initBanNames();
 	
+	private static final String IDS_FILE = "ids.txt";
+	private static final String NAMES_FILE = "names.txt";
+
+	private final List<Long> unwantedIds = new ArrayList<>();
+	private final List<String> unwantedNames = new ArrayList<>();
+	
+	public BotListener(List<Long> ids, List<String> names) {
+		List<Long> storedIds = initBanIds();
+		List<String> storedNames = initBanNames();
+		unwantedIds.addAll(storedIds);
+		unwantedIds.addAll(ids);
+		unwantedNames.addAll(storedNames);
+		unwantedNames.addAll(names);
+	}
+
 	private void checkName(Guild guild, User user)  {
 		String username = user.getName();
 		if (unwantedNames.contains(username.toLowerCase()))  {
@@ -71,9 +87,22 @@ public class BotListener extends ListenerAdapter  {
 		}, failure ->  {
 			handleError(failure, memberToBan.getGuild(), "banning");
 		});
-
+		
+		updateIdList(memberToBan);
+		updateNameList(memberToBan.getUser());
 	}
 	
+	private void updateIdList(Member bannedMember) {
+		unwantedIds.add(bannedMember.getIdLong());
+		FileUtils.writeToFile(IDS_FILE, bannedMember.getId());
+	}
+	
+	private void updateNameList(User bannedUser) {
+		String username = bannedUser.getName();
+		unwantedNames.add(username);
+		FileUtils.writeToFile(NAMES_FILE, username);
+	}
+
 	private void handleError(Throwable failure, Guild guild, String action)  {
 		String info;
 		if (failure instanceof PermissionException)  {
@@ -140,7 +169,7 @@ public class BotListener extends ListenerAdapter  {
 			.collect(Collectors.toList());
 
 		Member owner = guild.getOwner();
-
+		
 		List<TextChannel> privateChannels = talkablePrivateChannels.stream()
 			.filter(tc -> {
 				if (owner != null)  {
@@ -203,13 +232,47 @@ public class BotListener extends ListenerAdapter  {
 	}
 	
 	private List<String> initBanNames() {
-		// TODO read from file
-		return new ArrayList<>();
+		try {
+			String content = FileUtils.getContentFromFile(NAMES_FILE);
+			return getValues(content);
+		} catch (IOException e) {
+			e.printStackTrace();
+			return Arrays.asList();
+		}
+		
 	}
 	
 	private List<Long> initBanIds() {
-		// TODO read from file
-		return new ArrayList<>();
+		try {
+			String content = FileUtils.getContentFromFile(IDS_FILE);
+			return getValues(Long::parseLong, content);
+		} catch (IOException e) {
+			e.printStackTrace();
+			return Arrays.asList();
+		}
+		//return new LongCollector().getValues(content);
 	}
+	
+	private List<String> getValues(String content)  {
+        String[] csv = content.split(",");
+        
+        return Arrays.stream(csv).collect(Collectors.toList());
+	}
+
+	// Made by Hazir#0010 in the Unoffical Discord API Discord.
+    private <T extends Number> List<T> getValues(Function<String, T> parser, String content)  {
+        String[] csv = content.split(",");
+        
+        return Arrays.stream(csv)
+	        .map(elem -> {
+	            try  {
+	                return parser.apply(elem);
+	            }  catch (NumberFormatException ex) {
+	                return null;
+	            }
+	        })
+	        .filter(Objects::nonNull)
+	        .collect(Collectors.toList());
+    }
 
 }

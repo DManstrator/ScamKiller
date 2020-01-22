@@ -1,38 +1,66 @@
 package tk.dmanstrator.scamkiller.utils;
 
-import java.io.BufferedReader;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class Configuration {
-	
-	private final static Logger LOGGER = Logger.getLogger(Configuration.class.getName());
     
     private final String token;
-    
+	private final List<Long> ids = new ArrayList<>();
+	private final List<String> names = new ArrayList<>();
+	
     public Configuration(String pathToConfig) {
-        InputStream resourceStream = ClassLoader.getSystemClassLoader().getResourceAsStream(pathToConfig);
-        
-        if (resourceStream == null) {
-        	LOGGER.log(Level.SEVERE, "Couldn't get configuration file!");
-            token = null;
-            return;
-        }
-        
-        BufferedReader resReader = new BufferedReader(new InputStreamReader(resourceStream));
-        String json = resReader.lines().collect(Collectors.joining());
+    	String json = null;
+		try {
+			json = FileUtils.getContentFromFile(pathToConfig);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+    	
+    	if (json == null)  {
+    		this.token = null;
+    		return;
+    	}
         
         JSONObject jsonObject = new JSONObject(json);
         this.token = jsonObject.getString("token");
+        
+        JSONArray idArr = jsonObject.getJSONArray("ids");
+        for (Object obj : idArr)  {
+        	if (!(obj instanceof Long))  {
+        		continue;
+        	}
+        	long id = (Long) obj;
+        	if (!ids.contains(id))  {
+        		ids.add(id);
+        	}
+        }
+        
+        JSONArray nameArr = jsonObject.getJSONArray("names");
+        for (Object obj : nameArr)  {
+        	if (!(obj instanceof String))  {
+        		continue;
+        	}
+        	String name = (String) obj;
+        	if (!names.contains(name))  {
+        		names.add(name);
+        	}
+        }
     }
 
-    public String getToken() {
+	public String getToken() {
         return token;
     }
     
+	public List<Long> getIds() {
+		return ids;
+	}
+	
+	public List<String> getNames() {
+		return names;
+	}
 }

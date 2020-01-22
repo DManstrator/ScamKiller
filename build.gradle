@@ -15,7 +15,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'net.dv8tion:JDA:4.0.0_77'
+    implementation 'net.dv8tion:JDA:4.1.0_100'
     implementation group: 'org.json', name: 'json', version: '20180813'
     implementation group: 'ch.qos.logback', name: 'logback-classic', version: '1.2.3'
 }
